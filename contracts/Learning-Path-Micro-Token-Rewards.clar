@@ -6,6 +6,7 @@
 (define-constant err-module-completed (err u104))
 (define-constant err-insufficient-rewards (err u105))
 (define-constant err-streak-broken (err u106))
+(define-constant err-no-stake (err u107))
 
 (define-fungible-token learning-token)
 
@@ -13,6 +14,7 @@
 (define-map module-rewards uint uint)
 (define-map completed-modules {student: principal, module-id: uint} bool)
 (define-map student-streaks principal {current-streak: uint, last-completed: uint, max-streak: uint})
+(define-map staking-data principal {amount: uint, start-block: uint})
 
 (define-data-var total-modules uint u10)
 (define-data-var reward-per-module uint u50)
@@ -80,6 +82,25 @@
             (map-set student-streaks student {current-streak: u0, last-completed: u0, max-streak: (get max-streak current-data)}))
         (ok true)))
 
+(define-public (stake-tokens (amount uint))
+    (let ((current-balance (ft-get-balance learning-token tx-sender)))
+        (asserts! (>= current-balance amount) err-insufficient-rewards)
+        (asserts! (is-none (map-get? staking-data tx-sender)) err-already-enrolled)
+        (try! (ft-transfer? learning-token amount tx-sender (as-contract tx-sender)))
+        (map-set staking-data tx-sender {amount: amount, start-block: stacks-block-height})
+        (ok true)))
+
+(define-public (unstake-tokens)
+    (let ((stake-data (unwrap! (map-get? staking-data tx-sender) err-no-stake))
+          (amount (get amount stake-data))
+          (start-block (get start-block stake-data))
+          (blocks-staked (- stacks-block-height start-block))
+          (reward (/ (* amount blocks-staked) u1000)))
+        (try! (as-contract (ft-transfer? learning-token amount tx-sender tx-sender)))
+        (try! (ft-mint? learning-token reward tx-sender))
+        (map-delete staking-data tx-sender)
+        (ok true)))
+
 (define-read-only (get-student-streak (student principal))
     (ok (map-get? student-streaks student)))
 
@@ -87,3 +108,6 @@
     (let ((multiplier (if (<= streak-count u5) streak-count u5))
           (bonus (* base-reward (- multiplier u1))))
         (ok (+ base-reward bonus))))
+
+(define-read-only (get-staking-data (student principal))
+    (ok (map-get? staking-data student)))
