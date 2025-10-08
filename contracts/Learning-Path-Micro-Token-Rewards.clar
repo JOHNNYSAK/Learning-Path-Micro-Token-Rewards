@@ -7,6 +7,7 @@
 (define-constant err-insufficient-rewards (err u105))
 (define-constant err-streak-broken (err u106))
 (define-constant err-no-stake (err u107))
+(define-constant err-invalid-referrer (err u108))
 
 (define-fungible-token learning-token)
 
@@ -15,9 +16,11 @@
 (define-map completed-modules {student: principal, module-id: uint} bool)
 (define-map student-streaks principal {current-streak: uint, last-completed: uint, max-streak: uint})
 (define-map staking-data principal {amount: uint, start-block: uint})
+(define-map referrals principal principal)
 
 (define-data-var total-modules uint u10)
 (define-data-var reward-per-module uint u50)
+(define-data-var referral-bonus-percent uint u10)
 
 (define-public (initialize-rewards (amount uint))
     (begin
@@ -25,9 +28,15 @@
         (try! (ft-mint? learning-token amount contract-owner))
         (ok true)))
 
-(define-public (enroll)
+(define-public (enroll (referrer (optional principal)))
     (let ((empty-progress (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0)))
         (asserts! (is-none (map-get? enrollments tx-sender)) err-already-enrolled)
+        (match referrer
+            referrer-principal
+            (begin
+                (asserts! (is-some (map-get? enrollments referrer-principal)) err-invalid-referrer)
+                (map-set referrals tx-sender referrer-principal))
+            true)
         (map-set enrollments tx-sender empty-progress)
         (ok true)))
 
@@ -52,7 +61,12 @@
         (try! (ft-transfer? learning-token total-reward contract-owner tx-sender))
         (map-set completed-modules {student: tx-sender, module-id: module-id} true)
         (map-set student-streaks tx-sender {current-streak: new-streak, last-completed: module-id, max-streak: new-max-streak})
-        (ok true)))
+        (match (map-get? referrals tx-sender)
+            referrer-principal
+            (let ((referral-bonus (/ (* total-reward (var-get referral-bonus-percent)) u100)))
+                (try! (ft-transfer? learning-token referral-bonus contract-owner referrer-principal))
+                (ok true))
+            (ok true))))
 
 (define-read-only (get-student-progress (student principal))
     (ok (map-get? enrollments student)))
