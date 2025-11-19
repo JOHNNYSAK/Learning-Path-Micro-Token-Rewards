@@ -17,6 +17,7 @@
 (define-map student-streaks principal {current-streak: uint, last-completed: uint, max-streak: uint})
 (define-map staking-data principal {amount: uint, start-block: uint})
 (define-map referrals principal principal)
+(define-map module-progress {student: principal, module-id: uint} uint)
 
 (define-data-var total-modules uint u10)
 (define-data-var reward-per-module uint u50)
@@ -113,6 +114,14 @@
         (try! (as-contract (ft-transfer? learning-token amount tx-sender tx-sender)))
         (try! (ft-mint? learning-token reward tx-sender))
         (map-delete staking-data tx-sender)
+        (ok true)))
+
+(define-public (update-module-progress (module-id uint) (progress uint))
+    (begin
+        (asserts! (is-some (map-get? enrollments tx-sender)) err-not-enrolled)
+        (asserts! (<= module-id (var-get total-modules)) err-invalid-module)
+        (asserts! (<= progress u100) err-invalid-module)
+        (map-set module-progress {student: tx-sender, module-id: module-id} progress)
         (ok true)))
 
 (define-read-only (get-student-streak (student principal))
